@@ -1,0 +1,5 @@
+DATA_DIR = "data"
+MILP_DIR = "data/milp_lp"
+MICP_DIR = "data/micp_qp"
+EXAMPLE_DIR = "data/examples"
+OUTPUT_DIR = "outputs/results"

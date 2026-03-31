@@ -214,7 +214,9 @@ python main.py
 ### 单个实例
 
 ```
-python scripts/run.py
+python scripts/run.py --input data/raw/problem_micp_1.json --mode hybrid
+python scripts/run.py --input data/raw/problem_micp_1.json --mode classical
+python scripts/run.py --input data/raw/problem_micp_1.json --mode quantum
 ```
 
 或：
@@ -258,8 +260,3 @@ python scripts/run_all.py
 - 量子 warm start
 - 混合经典-量子 pipeline
 
-### 工程层
-
-- 批量运行脚本
-- 日志系统
-- 参数配置系统

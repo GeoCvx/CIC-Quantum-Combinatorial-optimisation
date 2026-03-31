@@ -214,7 +214,9 @@ python main.py
 ### 单个实例
 
 ```
-python scripts/run.py
+python scripts/run.py --input data/raw/problem_micp_1.json --mode hybrid
+python scripts/run.py --input data/raw/problem_micp_1.json --mode classical
+python scripts/run.py --input data/raw/problem_micp_1.json --mode quantum
 ```
 
 或：

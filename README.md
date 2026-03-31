@@ -260,8 +260,3 @@ python scripts/run_all.py
 - 量子 warm start
 - 混合经典-量子 pipeline
 
-### 工程层
-
-- 批量运行脚本
-- 日志系统
-- 参数配置系统

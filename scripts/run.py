@@ -1,5 +1,10 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
+import sys
+import pathlib
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+sys.path.append(str(ROOT))
 
 import argparse
 import json

@@ -61,6 +61,7 @@ def _extract_arrays(problem_dict: dict):
     return n, m, price, fixed_cost, alpha, max_demand, resource_limit, A
 
 
+# TODO: improve estimated_profit
 def _build_profit_linear_term(
     price: np.ndarray,
     alpha: np.ndarray,

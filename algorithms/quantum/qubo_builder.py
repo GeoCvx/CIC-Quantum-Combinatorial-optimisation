@@ -4,31 +4,22 @@ from __future__ import annotations
 from dataclasses import dataclass
 import numpy as np
 
+from algorithms.preprocess.feature_builder import ProblemStats, build_problem_stats
+from algorithms.feedback.bias_updater import BiasState
+
 
 @dataclass
 class QUBOConfig:
-    """
-    QUBO 构造参数。
-
-    objective_scale:
-        目标项缩放系数。默认 1.0。
-
-    resource_penalty:
-        资源约束罚项系数。越大越强调可行性。
-
-    hamming_penalty:
-        与 incumbent 的 Hamming 距离正则项系数。
-        设为 0 表示不启用。
-
-    demand_weight:
-        对 max_demand 的启发式利用强度。
-        由于主问题只优化 x，不直接优化 y，
-        这里用 max_demand 近似“若产品被选中，其潜在贡献规模”。
-    """
     objective_scale: float = 1.0
     resource_penalty: float = 10.0
     hamming_penalty: float = 0.0
     demand_weight: float = 1.0
+    conflict_weight: float = 1.0
+
+    # 新增：tabu / elite / stagnation
+    tabu_penalty: float = 5.0
+    elite_weight: float = 0.5
+    exploration_boost: float = 0.5
 
 
 def _validate_problem_dict(problem_dict: dict) -> None:
@@ -50,76 +41,28 @@ def _validate_problem_dict(problem_dict: dict) -> None:
 def _extract_arrays(problem_dict: dict):
     n = int(problem_dict["product_count"])
     m = int(problem_dict["resource_count"])
-
-    price = np.asarray(problem_dict["price"], dtype=float).reshape(n)
     fixed_cost = np.asarray(problem_dict["fixed_cost"], dtype=float).reshape(n)
-    alpha = np.asarray(problem_dict["alpha"], dtype=float).reshape(n)
     max_demand = np.asarray(problem_dict["max_demand"], dtype=float).reshape(n)
     resource_limit = np.asarray(problem_dict["resource_limit"], dtype=float).reshape(m)
     A = np.asarray(problem_dict["consumption_matrix"], dtype=float).reshape(m, n)
-
-    return n, m, price, fixed_cost, alpha, max_demand, resource_limit, A
-
-
-# TODO: improve estimated_profit
-def _build_profit_linear_term(
-    price: np.ndarray,
-    alpha: np.ndarray,
-    fixed_cost: np.ndarray,
-    max_demand: np.ndarray,
-    demand_weight: float,
-    objective_scale: float,
-) -> np.ndarray:
-    """
-    构造主问题中 x 的线性收益近似项。
-
-    由于真实问题中 x 的收益要通过子问题 y 才能准确评估，
-    这里用启发式近似：
-        estimated_profit_i = (price_i - alpha_i) * demand_weight * max_demand_i - fixed_cost_i
-
-    为了写成最小化 QUBO:
-        min x^T Q x
-    我们把“希望选取高收益产品”改写为负线性项。
-    """
-    unit_margin = price - alpha
-    estimated_profit = unit_margin * demand_weight * max_demand - fixed_cost
-
-    # QUBO 是最小化，所以利润越高，对角项越负
-    linear_diag = -objective_scale * estimated_profit
-    return linear_diag
+    return n, m, fixed_cost, max_demand, resource_limit, A
 
 
 def _add_resource_penalty(
     Q: np.ndarray,
     A: np.ndarray,
-    max_demand: np.ndarray,
+    approx_output: np.ndarray,
     resource_limit: np.ndarray,
     penalty: float,
 ) -> None:
-    """
-    添加资源约束的二次罚项。
-
-    对每个资源 j，考虑近似约束：
-        sum_i a_{j,i} * max_demand_i * x_i <= R_j
-
-    使用平方罚：
-        penalty * (sum_i w_i x_i - R_j)^2
-
-    展开后：
-        penalty * [x^T (w w^T) x - 2 R_j w^T x + 常数]
-
-    常数项对优化无影响，不写入 Q。
-    """
     m, n = A.shape
+    diag_idx = np.arange(n)
+
     for j in range(m):
-        w = A[j] * max_demand
+        w = A[j] * approx_output
         Rj = float(resource_limit[j])
-
-        # 二次项
         Q += penalty * np.outer(w, w)
-
-        # 线性项写入对角线
-        Q[np.arange(n), np.arange(n)] += -2.0 * penalty * Rj * w
+        Q[diag_idx, diag_idx] += -2.0 * penalty * Rj * w
 
 
 def _add_hamming_regularization(
@@ -127,29 +70,75 @@ def _add_hamming_regularization(
     incumbent: np.ndarray,
     penalty: float,
 ) -> None:
-    """
-    添加与 incumbent 的 Hamming 正则项：
-
-        penalty * sum_i (x_i - x*_i)^2
-
-    因为 x_i ∈ {0,1}，有 x_i^2 = x_i，
-    展开可得：
-        penalty * sum_i [ (1 - 2 x*_i) x_i ] + const
-
-    常数忽略，只写入对角线。
-    """
     incumbent = np.asarray(incumbent, dtype=float).reshape(-1)
-    if np.any((incumbent != 0.0) & (incumbent != 1.0)):
-        raise ValueError("incumbent 必须是 0/1 向量。")
+    diag_idx = np.arange(len(incumbent))
+    # x_i != incumbent_i 时增加代价
+    Q[diag_idx, diag_idx] += penalty * (1.0 - 2.0 * incumbent)
 
-    linear_diag = penalty * (1.0 - 2.0 * incumbent)
-    Q[np.arange(len(incumbent)), np.arange(len(incumbent))] += linear_diag
+
+def _add_tabu_penalty(
+    Q: np.ndarray,
+    tabu_set: list[str],
+    penalty: float,
+) -> None:
+    if not tabu_set:
+        return
+
+    n = Q.shape[0]
+    diag_idx = np.arange(n)
+
+    for bitstring in tabu_set:
+        x = np.array([int(ch) for ch in bitstring[:n]], dtype=float)
+
+        # 单体惩罚
+        Q[diag_idx, diag_idx] += penalty * x
+
+        # 组合惩罚：共现的 1-1 对一起加压
+        active = np.where(x > 0.5)[0]
+        for idx_i in range(len(active)):
+            for idx_j in range(idx_i + 1, len(active)):
+                i = active[idx_i]
+                j = active[idx_j]
+                Q[i, j] += penalty
+                Q[j, i] += penalty
+
+
+def _add_elite_attraction(
+    Q: np.ndarray,
+    elite_pool: list[dict],
+    weight: float,
+) -> None:
+    if not elite_pool:
+        return
+
+    n = Q.shape[0]
+    diag_idx = np.arange(n)
+
+    freq = np.zeros(n, dtype=float)
+    for item in elite_pool:
+        freq += np.asarray(item["x"], dtype=float).reshape(-1)
+    freq /= max(1, len(elite_pool))
+
+    # 高频出现在 elite 中的变量，在下一轮更容易被选中
+    Q[diag_idx, diag_idx] += -weight * freq
+
+
+def _add_stagnation_exploration(
+    Q: np.ndarray,
+    no_improve_rounds: int,
+    strength: float,
+    seed: int = 42,
+) -> None:
+    if no_improve_rounds <= 0 or strength <= 0.0:
+        return
+
+    rng = np.random.default_rng(seed + int(no_improve_rounds))
+    n = Q.shape[0]
+    noise = rng.uniform(-1.0, 1.0, size=n)
+    Q[np.arange(n), np.arange(n)] += strength * no_improve_rounds * noise
 
 
 def symmetrize_qubo(Q: np.ndarray) -> np.ndarray:
-    """
-    保证 Q 为对称矩阵。
-    """
     return 0.5 * (Q + Q.T)
 
 
@@ -157,70 +146,82 @@ def build_qubo(
     problem_dict: dict,
     config: QUBOConfig | None = None,
     incumbent: np.ndarray | None = None,
+    stats: ProblemStats | None = None,
+    bias_state: BiasState | None = None,
 ) -> np.ndarray:
-    """
-    构造主问题近似 QUBO：
-        min x^T Q x
-        s.t. x ∈ {0,1}^n
-
-    返回
-    ----
-    Q : np.ndarray, shape (n, n)
-        QUBO 矩阵
-    """
     if config is None:
         config = QUBOConfig()
 
     _validate_problem_dict(problem_dict)
-    n, m, price, fixed_cost, alpha, max_demand, resource_limit, A = _extract_arrays(problem_dict)
 
+    if stats is None:
+        stats = build_problem_stats(problem_dict)
+
+    n, m, fixed_cost, max_demand, resource_limit, A = _extract_arrays(problem_dict)
     Q = np.zeros((n, n), dtype=float)
+    diag_idx = np.arange(n)
 
-    # 1) 目标项（线性收益近似）
-    linear_diag = _build_profit_linear_term(
-        price=price,
-        alpha=alpha,
-        fixed_cost=fixed_cost,
-        max_demand=max_demand,
-        demand_weight=config.demand_weight,
-        objective_scale=config.objective_scale,
-    )
-    Q[np.arange(n), np.arange(n)] += linear_diag
+    # 1) 单体收益
+    linear_profit = stats.single_profit.copy()
+    if bias_state is not None:
+        linear_profit = linear_profit + bias_state.linear_bias
+    Q[diag_idx, diag_idx] += -config.objective_scale * linear_profit
 
-    # 2) 资源罚项
+    # 2) 产品冲突
+    conflict_matrix = stats.conflict_matrix.copy()
+    if bias_state is not None:
+        conflict_matrix = conflict_matrix + bias_state.pair_bias
+    Q += config.conflict_weight * conflict_matrix
+
+    # 3) 资源近似罚项
+    effective_penalty = config.resource_penalty
+    if bias_state is not None:
+        effective_penalty *= bias_state.feasibility_penalty_scale
+
     _add_resource_penalty(
         Q=Q,
         A=A,
-        max_demand=max_demand,
+        approx_output=stats.approx_output,
         resource_limit=resource_limit,
-        penalty=config.resource_penalty,
+        penalty=effective_penalty,
     )
 
-    # 3) 与 incumbent 的 Hamming 正则
-    if incumbent is not None and config.hamming_penalty > 0.0:
-        incumbent = np.asarray(incumbent, dtype=float).reshape(n)
+    # 4) incumbent 正则
+    reg_penalty = config.hamming_penalty
+    if bias_state is not None:
+        reg_penalty *= bias_state.regularization_scale
+    if incumbent is not None and reg_penalty > 0.0:
         _add_hamming_regularization(
-            Q=Q,
-            incumbent=incumbent,
-            penalty=config.hamming_penalty,
+            Q,
+            incumbent=np.asarray(incumbent, dtype=float).reshape(n),
+            penalty=reg_penalty,
+        )
+
+    # 5) tabu / no-good
+    if bias_state is not None and bias_state.tabu_set:
+        _add_tabu_penalty(Q, bias_state.tabu_set, penalty=config.tabu_penalty)
+
+    # 6) elite 结构吸引
+    if bias_state is not None and bias_state.elite_pool:
+        _add_elite_attraction(Q, bias_state.elite_pool, weight=config.elite_weight)
+
+    # 7) 停滞时增强探索
+    if bias_state is not None and bias_state.no_improve_rounds > 0:
+        _add_stagnation_exploration(
+            Q,
+            no_improve_rounds=bias_state.no_improve_rounds,
+            strength=config.exploration_boost,
         )
 
     return symmetrize_qubo(Q)
 
 
 def qubo_objective_value(Q: np.ndarray, x: np.ndarray) -> float:
-    """
-    计算 QUBO 目标值：
-        x^T Q x
-    """
     x = np.asarray(x, dtype=float).reshape(-1)
     return float(x @ Q @ x)
 
 
 def random_binary_x(n: int, rng: np.random.Generator | None = None) -> np.ndarray:
-    """
-    生成随机 0/1 向量。
-    """
     if rng is None:
         rng = np.random.default_rng()
     return rng.integers(0, 2, size=n).astype(float)

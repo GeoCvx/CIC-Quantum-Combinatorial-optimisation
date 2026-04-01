@@ -200,5 +200,4 @@ if __name__ == "__main__":
     print("Ising:", ising_val)
     print("Difference:", abs(qubo_val - ising_val))
 
-
     print("Ising:", ising_energy(model, z))

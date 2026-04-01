@@ -6,14 +6,7 @@ from algorithms.master.quantum_master import search_x_quantum
 from algorithms.master.hybrid_master import search_x_hybrid
 
 
-def _run_master(
-    problem_dict: dict,
-    master_mode: str = "classical",
-    master_config: Any = None,
-):
-    """
-    统一调度不同 master。
-    """
+def _run_master(problem_dict: dict, master_mode: str = "classical", master_config: Any = None):
     master_mode = master_mode.lower()
 
     if master_mode == "classical":
@@ -26,29 +19,18 @@ def _run_master(
     if master_mode == "quantum":
         return search_x_quantum(problem_dict, config=master_config)
 
-    if master_mode == "hybrid":
+    if master_mode in {"hybrid", "iterative_hybrid"}:
+        if master_mode == "iterative_hybrid" and master_config is not None:
+            master_config.iterative = True
         return search_x_hybrid(problem_dict, config=master_config)
 
-    raise ValueError(
-        f"不支持的 master_mode: {master_mode}，可选为 classical / quantum / hybrid"
-    )
+    raise ValueError(f"不支持的 master_mode: {master_mode}")
 
 
-def solve_micp(
-    problem_dict: dict,
-    master_mode: str = "classical",
-    master_config: Any = None,
-):
+def solve_micp(problem_dict: dict, master_mode: str = "classical", master_config: Any = None):
     start = time.time()
-
-    search_result = _run_master(
-        problem_dict=problem_dict,
-        master_mode=master_mode,
-        master_config=master_config,
-    )
-
+    search_result = _run_master(problem_dict, master_mode=master_mode, master_config=master_config)
     runtime = time.time() - start
-
     return {
         "status": "feasible",
         "objective_value": search_result["best_objective"],

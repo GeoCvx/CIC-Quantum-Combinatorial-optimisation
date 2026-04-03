@@ -1,262 +1,250 @@
-## 1. 项目简介
-
-本项目实现了一个面向 **混合整数优化问题（MILP / MICP）** 的求解框架，支持：
-
-- **MILP（Mixed Integer Linear Programming）**
-- **MICP（Mixed Integer Convex Programming）**
-
-核心思路：
-
-> 将问题拆分为 **离散主问题（x） + 连续子问题（y）**，并通过统一 pipeline 进行求解。
-
-其中：
-
-- 离散变量 $x \in \{0,1\}^n$
-- 连续变量 $y \in \mathbb{R}^n$
+本项目面向 **混合整数优化问题（MILP / MICP）**，构建了一套 **经典 + 量子（QAOA）混合求解框架**，用于在复杂组合空间中高效搜索高质量解。
 
 ------
 
-## 2. 方法概述
+# 🚀 项目目标
 
-### 2.1 子问题分解
+针对如下问题：
 
-固定 $x$ 后：
+- MILP（Mixed-Integer Linear Programming）
+- MICP（Mixed-Integer Convex Programming）
 
-#### MILP（β = 0）
+目标是：
 
-转化为线性规划：
-$$
-\max (p - \alpha)^T y
-$$
-
-- 使用：`scipy.optimize.linprog (HiGHS)`
+> 在离散变量 $x \in \{0,1\}^n$ 与连续变量 $y$ 联合优化问题中，设计高效的混合求解算法。
 
 ------
 
-#### MICP（β > 0）
+# 🧠 方法总览（核心思想）
 
-转化为凸二次优化问题：
-$$
-\max \sum_i \left((p_i - \alpha_i)y_i - \beta_i y_i^2\right)
-$$
+本项目采用：
 
-- 方法：
-  - 拉格朗日对偶
-  - 投影梯度下降
-  - 回溯线搜索
-  - 数值修复
+> **“离散变量启发式搜索 + 连续子问题精确求解” 的混合优化框架**
 
-------
-
-### 2.2 主问题（x 的搜索）
-
-当前实现为：
-
-- 随机搜索（baseline）
-
-后续可扩展：
-
-- 贪心策略
-- 局部搜索
-- Benders / OA
-- 量子优化（QAOA 等）
-
-------
-
-### 2.3 整体流程
+整体流程如下：
 
 ```
-输入 JSON
-   ↓
-识别问题类型（MILP / MICP）
-   ↓
-生成候选 x（master）
-   ↓
-求解子问题（LP / QP）
-   ↓
-计算目标值 Z
-   ↓
-更新最优解
-   ↓
-输出结果
+Problem JSON
+    ↓
+Pipeline
+    ↓
+Master（搜索 x）
+    ├── Classical（多起点局部搜索）
+    ├── Quantum（QAOA 生成候选）
+    ├── Candidate Selection（筛选）
+    ├── Local Refine（局部优化）
+    └── Iterative Feedback（迭代更新）
+    ↓
+Subproblem（固定 x 求最优 y）
+    ├── LP（MILP）
+    └── QP（MICP）
+    ↓
+输出最优 (x, y, Z)
 ```
 
 ------
 
-## 3. 项目结构
+# 📂 项目结构
 
 ```
-quantum_opt/
-├─ README.md
-├─ main.py
+CIC/
 │
-├─ data/
-│  ├─ raw/              # 赛题数据
-│  └─ examples/         # 官方样例
+├── algorithms/
+│   ├── pipeline/           		    # 总流程控制（MILP / MICP）
+│   ├── master/              		    # 离散变量 x 的搜索
+│   │   ├── hybrid_master.py
+│   │   ├── iterative_hybrid_master.py
+│   │   ├── classical_master.py
+│   │   └── quantum_master.py
+│   │
+│   ├── quantum/            		    # 量子模块（QAOA）
+│   │   ├── qubo_builder.py
+│   │   ├── ising_mapping.py
+│   │   ├── qaoa_circuit.py
+│   │   └── qaoa_solver.py
+│   │
+│   ├── candidate/     		            # 候选解筛选
+│   ├── feedback/        		        # bias / tabu 更新
+│   ├── local_search/          		    # 局部精修
+│   │
+│   ├── subproblem/            		    # 连续子问题求解
+│   │   ├── milp_lp/
+│   │   └── micp_qp/
+│   │
+│   └── utils/
 │
-├─ algorithms/
-│  ├─ subproblem/       # 连续子问题求解（核心数值层）
-│  │  ├─ router.py      # MILP / MICP 自动分流
-│  │  ├─ milp_lp/       # LP 子问题（scipy）
-│  │  └─ micp_qp/       # QP 子问题（对偶+PGD）
-│  │
-│  ├─ master/           # 离散变量 x 的生成
-│  │  ├─ classical_master.py
-│  │  └─ quantum_master.py   # （预留）
-│  │
-│  └─ pipeline/         # 总流程
-│     ├─ milp_pipeline.py
-│     └─ micp_pipeline.py
+├── scripts/
+│   ├── run.py                 			# 主运行脚本
+│   ├── run.py                 			# 批量运行脚本
+│   ├── compare_baseline.py    			# baseline 对比
+│   └── compare_with_exacy_opt.py       # 与最优解对比
 │
-├─ scripts/             # 运行脚本
-│  ├─ run.py
-│  └─ run_all.py        # （可扩展）
+├── data/
+│   ├── raw/                  		    # 输入数据
+│   └── example/          		        # 示例数据
 │
-├─ outputs/             # 输出结果
-│  ├─ results/
-│  └─ submissions/
+├── output/              		        # 输出结果（自动生成）
 │
-└─ tests/               # 单元测试
+└── test/                      			# 单元测试
 ```
 
 ------
 
-## 4. 核心模块说明
+# ⚙️ 核心模块说明
 
-### 4.1 subproblem
+## 1️⃣ Pipeline
 
-统一接口：
+- `milp_pipeline.py`
+- `micp_pipeline.py`
+
+作用：
 
 ```
-evaluate_subproblem(problem_dict, x)
+统一调度：
+- master（找 x）
+- subproblem（求 y）
 ```
-
-自动分流：
-
-- MILP → `milp_lp.evaluate_x`
-- MICP → `micp_qp.evaluate_x`
 
 ------
 
-### 4.2 master
+## 2️⃣ Master（核心搜索）
 
-负责生成候选解 $x$
+### 模式支持：
+
+| 模式             | 说明          |
+| ---------------- | ------------- |
+| classical        | 纯经典搜索    |
+| quantum          | 纯 QAOA       |
+| hybrid           | 单次混合      |
+| iterative_hybrid | 多轮迭代混合⭐ |
+
+------
+
+### iterative_hybrid 机制：
+
+```
+循环：
+  1. Classical warm start（计算开销大，暂时舍弃）
+  2. QAOA 生成候选
+  3. Candidate selection
+  4. Subproblem evaluation
+  5. Local refine
+  6. 更新 bias / tabu / elite
+```
+
+特点：
+
+- 避免重复搜索
+- 持续改进解质量
+- 结合量子采样与经典优化
+
+------
+
+## 3️⃣ Quantum（QAOA）
+
+核心文件：
+
+- `qubo_builder.py`
+- `qaoa_solver.py`
+
+作用：
+
+```
+x → QUBO → Ising → QAOA → bitstring
+```
 
 当前实现：
 
-- 随机二进制采样
+- p=1 QAOA
+- 参数网格搜索（gamma / beta）
+- 输出候选解分布
 
 ------
 
-### 4.3 pipeline
+## 4️⃣ Subproblem（连续优化）
 
-负责整体求解逻辑：
+给定 $x$，求：
 
 ```
-solve_milp(problem_dict)
-solve_micp(problem_dict)
+max Z(x, y)
+```
+
+实现：
+
+| 类型 | 方法 |
+| ---- | ---- |
+| MILP | LP   |
+| MICP | QP   |
+
+👉 使用精确求解（不是近似）
+
+------
+
+# 📥 输入格式
+
+JSON字段说明：
+
+| 字段               | 含义     |
+| ------------------ | -------- |
+| product_count      | 产品数量 |
+| resource_count     | 资源数量 |
+| price              | 单位收益 |
+| fixed_cost         | 固定成本 |
+| alpha / beta       | 成本函数 |
+| max_demand         | 最大需求 |
+| resource_limit     | 资源约束 |
+| consumption_matrix | 资源消耗 |
+
+# ▶️ 使用方法
+
+## 单个实例
+
+```
+python scripts/run.py --input data/raw/problem_micp_1.json --mode classical
+python scripts/run.py --input data/raw/problem_micp_1.json --mode quantum
+python scripts/run.py --input data/raw/problem_micp_1.json --mode hybrid
+python scripts/run.py --input data/raw/problem_micp_1.json --mode iterative_hybrid
 ```
 
 ------
 
-### 4.4 main
-
-统一入口：
+## 批量运行
 
 ```
-python main.py
+python .\scripts\run_batch.py --input_dir data/raw
 ```
 
-自动完成：
+输出：
 
-- 读取数据
-- 判断问题类型
-- 调用对应 pipeline
-- 输出结果
+```
+output/*.json
+```
 
-------
-
-## 5. 输入 / 输出格式
-
-### 输入（JSON）
+输出格式：
 
 ```
 {
-  "product_count": n,
-  "resource_count": m,
-  "price": [...],
-  "fixed_cost": [...],
-  "alpha": [...],
-  "beta": [...],
-  "max_demand": [...],
-  "resource_limit": [...],
-  "consumption_matrix": [...]
-}
-```
-
-------
-
-### 输出
-
-```
-{
-  "x": [...],
+  "x": [0,1,1,...],
   "y": [...],
-  "Z": ...,
+  "Z": 20084.103448,
   "r": [...]
 }
 ```
 
 ------
 
-## 6. 如何运行
+# 📊 对比工具
 
-### 单个实例
-
-```
-python scripts/run.py --input data/raw/problem_micp_1.json --mode hybrid
-python scripts/run.py --input data/raw/problem_micp_1.json --mode classical
-python scripts/run.py --input data/raw/problem_micp_1.json --mode quantum
-```
-
-或：
+## baseline 对比
 
 ```
-python main.py
+python scripts/compare_baseline.py --input data/raw/problem_milp_1.json
 ```
 
 ------
 
-### 批量运行（建议后续实现）
+## 最优解对比（小规模）
 
 ```
-python scripts/run_all.py
+python scripts/compare_with_exact_opt.py --input data/raw/problem_milp_1.json
 ```
-
-------
-
-## 7. 当前完成情况
-
-- ✅ MILP 子问题（LP）已实现并测试通过
-- ✅ MICP 子问题（QP）已实现并测试通过
-- ✅ 子问题统一接口（router）完成
-- ✅ 基础 pipeline 已打通
-- ✅ 基础测试覆盖（可行性、自洽性、异常）
-
-------
-
-## 8. 后续优化方向
-
-### 算法层
-
-- 贪心初始化
-- 局部搜索（flip / swap）
-- Benders decomposition
-- Outer Approximation (OA)
-
-### 量子方向
-
-- QAOA 求解主问题
-- 量子 warm start
-- 混合经典-量子 pipeline
-

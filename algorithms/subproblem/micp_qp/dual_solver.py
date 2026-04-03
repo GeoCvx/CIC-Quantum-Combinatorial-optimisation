@@ -22,10 +22,10 @@ class QPSolverConfig:
     max_iter: int = 5000
     tol: float = 1e-8
 
-    # 对偶空间投影梯度的初始步长
+    # 平滑情形（全部 beta_i > 0）下，对偶空间投影梯度的初始步长
     step_init: float = 1.0
 
-    # 回溯线搜索参数
+    # 平滑情形下，回溯线搜索参数
     backtrack_factor: float = 0.5
     min_step: float = 1e-12
 
@@ -35,6 +35,12 @@ class QPSolverConfig:
     # 是否保存迭代历史
     store_history: bool = False
     history_every: int = 20
+
+    # beta 是否视为 0 的阈值
+    zero_beta_eps: float = 1e-12
+
+    # 混合情形（存在 beta_i = 0）时，投影次梯度法的步长缩放系数
+    subgradient_step_scale: float = 1.0
 
 
 @dataclass
@@ -67,14 +73,45 @@ def recover_y_from_lambda(
     beta: np.ndarray,
     A: np.ndarray,
     u: np.ndarray,
+    eps: float = 1e-12,
 ) -> np.ndarray:
     """
-    给定对偶变量 lambda，恢复原始变量 y(lambda)：
-        y_i = clip((c_i - a_i^T lambda) / (2 beta_i), 0, u_i)
+    给定对偶变量 lambda，恢复原始变量 y(lambda)。
+
+    分两类处理：
+
+    1) beta_i > eps：
+       y_i = clip((c_i - a_i^T lambda) / (2 beta_i), 0, u_i)
+
+    2) beta_i <= eps：
+       内层退化为线性问题：
+           max_{0<=y_i<=u_i} (c_i - a_i^T lambda) y_i
+       因此：
+       - 若系数 > 0，取 u_i
+       - 若系数 < 0，取 0
+       - 若系数 = 0，任意可行值都可；这里统一取 0
     """
     shifted_linear = c - A.T @ lambda_
-    y = shifted_linear / (2.0 * beta)
-    y = np.clip(y, 0.0, u)
+    y = np.zeros_like(c, dtype=float)
+
+    quad_mask = beta > eps
+    lin_mask = ~quad_mask
+
+    if np.any(quad_mask):
+        y_quad = shifted_linear[quad_mask] / (2.0 * beta[quad_mask])
+        y[quad_mask] = np.clip(y_quad, 0.0, u[quad_mask])
+
+    if np.any(lin_mask):
+        y_lin = np.zeros(np.sum(lin_mask), dtype=float)
+        coeff_lin = shifted_linear[lin_mask]
+        u_lin = u[lin_mask]
+
+        # 线性项系数为正，则取上界
+        y_lin[coeff_lin > eps] = u_lin[coeff_lin > eps]
+
+        # 系数 <= eps 时，统一取 0
+        y[lin_mask] = y_lin
+
     return y
 
 
@@ -85,17 +122,22 @@ def dual_objective_and_gradient(
     A: np.ndarray,
     R: np.ndarray,
     u: np.ndarray,
+    eps: float = 1e-12,
 ) -> tuple[float, np.ndarray, np.ndarray]:
     """
     返回：
     - 对偶目标 g(lambda)
-    - 梯度 grad = R - A y(lambda)
+    - grad = R - A y(lambda)
     - 当前 y(lambda)
+
+    注意：
+    - 当所有 beta_i > 0 时，grad 是梯度
+    - 当存在 beta_i = 0 时，grad 更准确地说是一个次梯度
     """
-    y = recover_y_from_lambda(lambda_, c, beta, A, u)
+    y = recover_y_from_lambda(lambda_, c, beta, A, u, eps=eps)
     shifted_linear = c - A.T @ lambda_
 
-    # phi_i(lambda) = max_{0<=y_i<=u_i} [ shifted_linear_i * y_i - beta_i y_i^2 ]
+    # 统一写成 shifted_linear * y - beta * y^2；beta=0 时自动退化为线性项
     phi = shifted_linear * y - beta * y * y
     g = float(np.dot(lambda_, R) + np.sum(phi))
 
@@ -106,6 +148,10 @@ def dual_objective_and_gradient(
 def projected_gradient_mapping_norm(lambda_: np.ndarray, grad: np.ndarray) -> float:
     """
     投影梯度映射的无穷范数，用于判断收敛。
+
+    说明：
+    - 在全部 beta_i > 0 的平滑情形下，这是比较自然的最优性指标
+    - 在存在 beta_i = 0 的混合情形下，它更适合被看作一个“站立性代理指标”
     """
     projected = np.maximum(lambda_ - grad, 0.0)
     return float(np.max(np.abs(lambda_ - projected)))
@@ -135,7 +181,9 @@ def solve_qp_given_x(
     if config is None:
         config = QPSolverConfig()
 
-    problem.validate_qp_compatible()
+    eps = config.zero_beta_eps
+
+    problem.validate_qp_compatible(eps=eps)
     x = validate_x_binary(x, problem.n)
 
     c = problem.c
@@ -143,6 +191,8 @@ def solve_qp_given_x(
     A = problem.consumption_matrix
     R = problem.resource_limit
     u = upper_bound_from_x(problem, x)
+
+    has_zero_beta = np.any(beta <= eps)
 
     # 若 x 全 0，则 y 必为 0
     if np.all(u <= 1e-15):
@@ -170,7 +220,7 @@ def solve_qp_given_x(
             raise ValueError(f"lambda0 shape 应为 ({problem.m},)，实际为 {lambda_.shape}")
         lambda_ = np.maximum(lambda_, 0.0)
 
-    g, grad, y = dual_objective_and_gradient(lambda_, c, beta, A, R, u)
+    g, grad, y = dual_objective_and_gradient(lambda_, c, beta, A, R, u, eps=eps)
 
     converged = False
     history: list[dict] = []
@@ -190,36 +240,59 @@ def solve_qp_given_x(
                     "dual_objective": g,
                     "pg_norm": pg_norm,
                     "primal_violation": primal_violation,
+                    "mode": "subgradient" if has_zero_beta else "gradient",
                 }
             )
 
-        # 收敛判据：投影梯度足够小 + 原始资源违规足够小
-        if pg_norm <= config.tol and primal_violation <= 10.0 * config.tol:
-            converged = True
-            break
-
-        # 对偶空间投影梯度 + 回溯线搜索
-        step = config.step_init
-        accepted = False
-
-        while step >= config.min_step:
-            candidate_lambda = np.maximum(lambda_ - step * grad, 0.0)
-            candidate_g, candidate_grad, candidate_y = dual_objective_and_gradient(
-                candidate_lambda, c, beta, A, R, u
-            )
-
-            # 对偶目标下降则接受
-            if candidate_g <= g + 1e-14:
-                accepted = True
+        # -------------------------------------------
+        # 情形 A：全部 beta_i > 0
+        # 使用原来的投影梯度 + 回溯线搜索
+        # -------------------------------------------
+        if not has_zero_beta:
+            if pg_norm <= config.tol and primal_violation <= 10.0 * config.tol:
+                converged = True
                 break
 
-            step *= config.backtrack_factor
+            step = config.step_init
+            accepted = False
 
-        if not accepted:
-            candidate_lambda = np.maximum(lambda_ - config.min_step * grad, 0.0)
+            while step >= config.min_step:
+                candidate_lambda = np.maximum(lambda_ - step * grad, 0.0)
+                candidate_g, candidate_grad, candidate_y = dual_objective_and_gradient(
+                    candidate_lambda, c, beta, A, R, u, eps=eps
+                )
+
+                # 对偶目标下降则接受
+                if candidate_g <= g + 1e-14:
+                    accepted = True
+                    break
+
+                step *= config.backtrack_factor
+
+            if not accepted:
+                candidate_lambda = np.maximum(lambda_ - config.min_step * grad, 0.0)
+                candidate_g, candidate_grad, candidate_y = dual_objective_and_gradient(
+                    candidate_lambda, c, beta, A, R, u, eps=eps
+                )
+
+        # -------------------------------------------
+        # 情形 B：存在 beta_i = 0
+        # 使用投影次梯度法 + 衰减步长
+        # -------------------------------------------
+        else:
+            # 次梯度法不再依赖平滑性和线搜索
+            step = config.subgradient_step_scale / np.sqrt(it)
+
+            candidate_lambda = np.maximum(lambda_ - step * grad, 0.0)
             candidate_g, candidate_grad, candidate_y = dual_objective_and_gradient(
-                candidate_lambda, c, beta, A, R, u
+                candidate_lambda, c, beta, A, R, u, eps=eps
             )
+
+            # 混合情形下的停止条件更温和一些：
+            # 既看资源违反，也看投影残差是否已经足够小
+            if pg_norm <= max(config.tol, 1e-6) and primal_violation <= 10.0 * config.tol:
+                converged = True
+                break
 
         lambda_ = candidate_lambda
         g = candidate_g

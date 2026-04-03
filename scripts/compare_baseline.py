@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import sys
 import json
+import time
 import argparse
 import pathlib
 from typing import Any
@@ -133,6 +134,7 @@ def make_quantum_config() -> QuantumMasterConfig:
 
 def make_iterative_hybrid_config() -> HybridMasterConfig:
     iterative_cfg = IterativeHybridMasterConfig(
+        use_classical_warm_start=False,
         max_rounds=3,
         no_improve_patience=2,
         classical_num_starts=5,
@@ -224,6 +226,8 @@ def print_solution_block(title: str, sol: dict[str, Any]) -> None:
 
 
 def compare(problem_path: pathlib.Path) -> None:
+    total_t0 = time.perf_counter()
+
     with open(problem_path, "r", encoding="utf-8") as f:
         problem_dict = json.load(f)
 
@@ -231,13 +235,26 @@ def compare(problem_path: pathlib.Path) -> None:
     print("file:", problem_path)
     print("type:", detect_problem_type(problem_dict))
 
-    # baseline
+    # baseline raw
+    t0 = time.perf_counter()
     baseline_raw = solve_with_greedy(problem_dict)
+    baseline_raw_time = time.perf_counter() - t0
+
+    # baseline fair eval
+    t0 = time.perf_counter()
     baseline_fair = evaluate_baseline_fairly(problem_dict, baseline_raw)
+    baseline_fair_time = time.perf_counter() - t0
 
     # current solver
+    t0 = time.perf_counter()
     current_result = solve_with_current_solver(problem_dict, mode="iterative_hybrid")
+    current_wall_time = time.perf_counter() - t0
     current_sol = current_result["solution"]
+
+    # 如果 pipeline 已经自带 runtime，就一并打印
+    current_reported_runtime = float(current_result.get("runtime", current_wall_time))
+
+    total_compare_time = time.perf_counter() - total_t0
 
     print_solution_block("Baseline (raw greedy)", baseline_raw)
     print_solution_block("Baseline (fair eval by project evaluator)", baseline_fair)
@@ -254,6 +271,12 @@ def compare(problem_path: pathlib.Path) -> None:
     print(f"Current - Baseline(raw): {z_current - z_base_raw:.6f}")
     print(f"Current - Baseline(fair): {z_current - z_base_fair:.6f}")
 
+    print("\n=== Runtime Summary ===")
+    print(f"Baseline raw time      : {baseline_raw_time:.6f} s")
+    print(f"Baseline fair-eval time: {baseline_fair_time:.6f} s")
+    print(f"Current solver time    : {current_wall_time:.6f} s (wall-clock)")
+    print(f"Current solver runtime : {current_reported_runtime:.6f} s (reported by pipeline)")
+    print(f"Total compare time     : {total_compare_time:.6f} s")
 
 def main():
     parser = argparse.ArgumentParser(description="Compare official baseline and current solver")

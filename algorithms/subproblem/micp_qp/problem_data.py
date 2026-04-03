@@ -97,11 +97,14 @@ class ProblemData:
 
     def validate_qp_compatible(self, eps: float = 1e-12) -> None:
         """
-        当前 QP 求解器只支持 beta_i > 0。
+        当前 QP 求解器支持 beta 不全为 0 的情形。
+        若 beta 全为 0，则该实例应交给 LP 求解器处理。
+
+        注意：
+        - 这里不再禁止存在部分 beta_i = 0
+        - 混合情形（部分为 0，部分 > 0）由 dual_solver 内部处理
         """
-        if np.any(self.beta <= eps):
-            bad_idx = np.where(self.beta <= eps)[0].tolist()
+        if np.all(self.beta <= eps):
             raise ValueError(
-                "当前 QP 求解器仅支持 beta_i > 0。"
-                f" 以下位置 beta_i <= {eps}: {bad_idx}"
+                "当前实例中 beta 全为 0，应交给 LP 求解器处理，而不是 QP 求解器。"
             )

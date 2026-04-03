@@ -2,17 +2,17 @@
 """
 qp_solver package
 
-固定 x 后的 QP 子问题求解器：
+固定 x 后的 QP / convex subproblem 求解器：
     max_y  sum_i [ (p_i - alpha_i) y_i - beta_i y_i^2 ]
     s.t.   A y <= R
            0 <= y_i <= D_i x_i
 
 当前版本：
-- 仅支持 beta_i > 0
-- 使用拉格朗日对偶 + 对偶空间投影梯度
+- 支持 beta 不全为 0 的情形
+- 允许存在部分 beta_i = 0
+- 若 beta 全为 0，应交给 LP 求解器处理
+- 当存在 beta_i = 0 时，内部自动切换为“投影次梯度法”
 """
-
-# -*- coding: utf-8 -*-
 
 from .problem_data import ProblemData
 from .dual_solver import QPSolverConfig, QPSolverResult, solve_qp_given_x

@@ -27,6 +27,9 @@ class IterativeHybridMasterConfig:
     max_rounds: int = 5
     no_improve_patience: int = 2
 
+    # 新增：是否使用 classical warm start
+    use_classical_warm_start: bool = False
+
     classical_num_starts: int = 5
     classical_local_iter: int = 20
     classical_seed: int = 42
@@ -35,6 +38,18 @@ class IterativeHybridMasterConfig:
     candidate_config: CandidateSelectionConfig = field(default_factory=CandidateSelectionConfig)
     bias_update_config: BiasUpdateConfig = field(default_factory=BiasUpdateConfig)
     local_refine_config: LocalRefineConfig = field(default_factory=LocalRefineConfig)
+
+def _make_zero_init(problem_dict: dict, round_digits: int = 6) -> dict[str, Any]:
+    n = int(problem_dict["product_count"])
+    x0 = np.zeros(n, dtype=float)
+    res0 = evaluate_subproblem(problem_dict, x0, round_digits=round_digits)
+    return {
+        "x": np.asarray(res0["x"], dtype=float).copy(),
+        "best_result": res0,
+        "objective_value": float(res0["Z"]),
+        "feasible": True,
+        "source": "all_zero_init",
+    }
 
 
 def search_x_hybrid_iterative(
@@ -47,22 +62,50 @@ def search_x_hybrid_iterative(
     stats = build_problem_stats(problem_dict)
     bias_state = init_bias_state(stats)
 
-    # ===== classical warm start =====
-    classical_result = search_x_classical(
-        problem_dict,
-        num_starts=config.classical_num_starts,
-        local_iter=config.classical_local_iter,
-        seed=config.classical_seed,
-    )
+    classical_result = None  # 关键：先给默认值
 
-    current_best = {
-        "x": np.asarray(classical_result["best_x"], dtype=float).copy(),
-        "best_result": classical_result["best_result"],
-        "objective_value": float(classical_result["best_objective"]),
-        "feasible": True,
-        "source": "classical_warm_start",
-    }
-    bias_state.incumbent = current_best["x"].copy()
+    if config.use_classical_warm_start:
+        classical_result = search_x_classical(
+            problem_dict,
+            num_starts=config.classical_num_starts,
+            local_iter=config.classical_local_iter,
+            seed=config.classical_seed,
+        )
+        current_best = {
+            "x": np.asarray(classical_result["best_x"], dtype=float).copy(),
+            "best_result": classical_result["best_result"],
+            "objective_value": float(classical_result["best_objective"]),
+            "feasible": True,
+            "source": "classical_warm_start",
+        }
+        bias_state.incumbent = current_best["x"].copy()
+    else:
+        current_best = _make_zero_init(problem_dict, round_digits=6)
+        bias_state.incumbent = None
+
+    # ========= 初始化 current_best =========
+    # 方案 A：保留 classical warm start
+    if config.use_classical_warm_start:
+        classical_result = search_x_classical(
+            problem_dict,
+            num_starts=config.classical_num_starts,
+            local_iter=config.classical_local_iter,
+            seed=config.classical_seed,
+        )
+        current_best = {
+            "x": np.asarray(classical_result["best_x"], dtype=float).copy(),
+            "best_result": classical_result["best_result"],
+            "objective_value": float(classical_result["best_objective"]),
+            "feasible": True,
+            "source": "classical_warm_start",
+        }
+        bias_state.incumbent = current_best["x"].copy()
+    # 方案 B：去掉 warm start，直接从 all-zero 基线开始
+    else:
+        current_best = _make_zero_init(problem_dict, round_digits=6)
+        # 关键：不把全零解当成 incumbent
+        # 第一轮 quantum 直接在 incumbent=None 的情况下自由搜索
+        bias_state.incumbent = None
 
     rounds: list[dict[str, Any]] = []
 
@@ -149,6 +192,7 @@ def search_x_hybrid_iterative(
             problem_dict,
             refine_start,
             config=config.local_refine_config,
+            linear_bias=bias_state.linear_bias, #修改：（添加linear_bias=bias_state.linear_bias,）当前主循环已经先做了 update_bias_state(...)，说明这一轮已经学到了新的 linear_bias；但后面的 local refine 没接这个 bias，相当于反馈信息没传到最后一层精修。
         )
 
         if refined["objective_value"] > current_best["objective_value"]:

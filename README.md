@@ -1,18 +1,12 @@
 ## 1. 项目简介
 
 本项目实现了一个面向 **混合整数优化问题（MILP / MICP）** 的求解框架，支持：
-
 - **MILP（Mixed Integer Linear Programming）**
 - **MICP（Mixed Integer Convex Programming）**
 
 核心思路：
-
 > 将问题拆分为 **离散主问题（x） + 连续子问题（y）**，并通过统一 pipeline 进行求解。
 
-其中：
-
-- 离散变量 $x \in \{0,1\}^n$
-- 连续变量 $y \in \mathbb{R}^n$
 
 ------
 
@@ -159,23 +153,6 @@ solve_micp(problem_dict)
 
 ------
 
-### 4.4 main
-
-统一入口：
-
-```
-python main.py
-```
-
-自动完成：
-
-- 读取数据
-- 判断问题类型
-- 调用对应 pipeline
-- 输出结果
-
-------
-
 ## 5. 输入 / 输出格式
 
 ### 输入（JSON）
@@ -214,49 +191,27 @@ python main.py
 ### 单个实例
 
 ```
-python scripts/run.py --input data/raw/problem_micp_1.json --mode hybrid
+python scripts/run.py --input data/raw/problem_micp_1.json --mode iterative_hybrid
 python scripts/run.py --input data/raw/problem_micp_1.json --mode classical
 python scripts/run.py --input data/raw/problem_micp_1.json --mode quantum
 ```
 
-或：
-
-```
-python main.py
-```
-
 ------
 
-### 批量运行（建议后续实现）
+### 批量运行
 
 ```
-python scripts/run_all.py
+python .\scripts\run_batch.py --input_dir data/raw --output_dir output
 ```
 
+### baseline 对比
+```
+python /scripts/compare_baseline.py -input data/raw/problem_micp1.json
+```
+
+### exact 对比
+```
+python /scripts/compare_with_exct_opt.py -input data/raw/problem_micp1.json
+```
 ------
-
-## 7. 当前完成情况
-
-- ✅ MILP 子问题（LP）已实现并测试通过
-- ✅ MICP 子问题（QP）已实现并测试通过
-- ✅ 子问题统一接口（router）完成
-- ✅ 基础 pipeline 已打通
-- ✅ 基础测试覆盖（可行性、自洽性、异常）
-
-------
-
-## 8. 后续优化方向
-
-### 算法层
-
-- 贪心初始化
-- 局部搜索（flip / swap）
-- Benders decomposition
-- Outer Approximation (OA)
-
-### 量子方向
-
-- QAOA 求解主问题
-- 量子 warm start
-- 混合经典-量子 pipeline
 

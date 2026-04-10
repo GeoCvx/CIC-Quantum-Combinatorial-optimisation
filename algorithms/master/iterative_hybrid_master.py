@@ -64,24 +64,9 @@ def search_x_hybrid_iterative(
 
     classical_result = None  # 关键：先给默认值
 
-    if config.use_classical_warm_start:
-        classical_result = search_x_classical(
-            problem_dict,
-            num_starts=config.classical_num_starts,
-            local_iter=config.classical_local_iter,
-            seed=config.classical_seed,
-        )
-        current_best = {
-            "x": np.asarray(classical_result["best_x"], dtype=float).copy(),
-            "best_result": classical_result["best_result"],
-            "objective_value": float(classical_result["best_objective"]),
-            "feasible": True,
-            "source": "classical_warm_start",
-        }
-        bias_state.incumbent = current_best["x"].copy()
-    else:
-        current_best = _make_zero_init(problem_dict, round_digits=6)
-        bias_state.incumbent = None
+    round_digits = 6
+    if config.quantum_config is not None:
+        round_digits = int(config.quantum_config.round_digits)
 
     # ========= 初始化 current_best =========
     # 方案 A：保留 classical warm start
@@ -102,7 +87,7 @@ def search_x_hybrid_iterative(
         bias_state.incumbent = current_best["x"].copy()
     # 方案 B：去掉 warm start，直接从 all-zero 基线开始
     else:
-        current_best = _make_zero_init(problem_dict, round_digits=6)
+        current_best = _make_zero_init(problem_dict, round_digits=round_digits)
         # 关键：不把全零解当成 incumbent
         # 第一轮 quantum 直接在 incumbent=None 的情况下自由搜索
         bias_state.incumbent = None
@@ -233,7 +218,7 @@ def search_x_hybrid_iterative(
         best_result = evaluate_subproblem(
             problem_dict,
             current_best["x"],
-            round_digits=6,
+            round_digits=round_digits,
         )
     else:
         best_result = current_best["best_result"]

@@ -21,6 +21,9 @@ class QUBOConfig:
     elite_weight: float = 0.5
     exploration_boost: float = 0.5
 
+    # 新增：exploration_seed
+    exploration_seed: int = 42
+
 
 def _validate_problem_dict(problem_dict: dict) -> None:
     required = [
@@ -127,7 +130,7 @@ def _add_stagnation_exploration(
     Q: np.ndarray,
     no_improve_rounds: int,
     strength: float,
-    seed: int = 42,
+    seed: int ,
 ) -> None:
     if no_improve_rounds <= 0 or strength <= 0.0:
         return
@@ -211,6 +214,7 @@ def build_qubo(
             Q,
             no_improve_rounds=bias_state.no_improve_rounds,
             strength=config.exploration_boost,
+            seed=config.exploration_seed,
         )
 
     return symmetrize_qubo(Q)

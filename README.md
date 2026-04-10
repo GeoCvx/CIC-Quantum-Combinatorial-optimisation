@@ -248,3 +248,26 @@ python scripts/compare_baseline.py --input data/raw/problem_milp_1.json
 ```
 python scripts/compare_with_exact_opt.py --input data/raw/problem_milp_1.json
 ```
+
+## json进行参数配置（用于对比不同seed/param的效果）
+```
+python scripts/run_with_config.py --input data/raw/problem_milp_1.json --config config/iterative_hybrid_base.json
+```
+
+## 各模块参数对比（批处理）
+```
+python scripts/run_param_comp_batch.py --module bias
+python scripts/run_param_comp_batch.py --module candidate
+python scripts/run_param_comp_batch.py --module local
+python scripts/run_param_comp_batch.py --module qaoa
+python scripts/run_param_comp_batch.py --module qubo
+```
+
+## 各模块参数对比（数据处理）
+```
+python scripts/collect_results.py   
+```
+或增加可视化：
+```
+python scripts/collect_results.py --plot
+```

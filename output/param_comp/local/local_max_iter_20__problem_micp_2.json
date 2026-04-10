@@ -1,0 +1,169 @@
+{
+  "status": "feasible",
+  "objective_value": 16069.392006,
+  "solution": {
+    "x": [
+      0,
+      1,
+      1,
+      0,
+      0,
+      1,
+      1,
+      0,
+      1,
+      1,
+      1,
+      0
+    ],
+    "y": [
+      0.0,
+      43.411534,
+      29.999999,
+      0.0,
+      0.0,
+      30.149072,
+      20.711144,
+      0.0,
+      32.76393,
+      24.999999,
+      34.156892,
+      0.0
+    ],
+    "Z": 16069.392006,
+    "r": [
+      78.526396,
+      6.933044,
+      2e-06,
+      1e-06,
+      0.0
+    ]
+  },
+  "runtime": 439.210401058197,
+  "extra": {
+    "problem_type": "MICP",
+    "master_mode": "iterative_hybrid",
+    "master_summary": {
+      "rounds": [
+        {
+          "round": 0,
+          "best_objective": 16069.392006,
+          "best_source": "local_refine",
+          "num_selected_candidates": 4,
+          "num_evaluated_candidates": 8,
+          "no_improve_rounds": 0,
+          "tabu_size": 7,
+          "elite_size": 3,
+          "incumbent_changed": true
+        },
+        {
+          "round": 1,
+          "best_objective": 16069.392006,
+          "best_source": "local_refine",
+          "num_selected_candidates": 7,
+          "num_evaluated_candidates": 11,
+          "no_improve_rounds": 1,
+          "tabu_size": 17,
+          "elite_size": 6,
+          "incumbent_changed": false
+        },
+        {
+          "round": 2,
+          "best_objective": 16069.392006,
+          "best_source": "local_refine",
+          "num_selected_candidates": 5,
+          "num_evaluated_candidates": 11,
+          "no_improve_rounds": 2,
+          "tabu_size": 25,
+          "elite_size": 7,
+          "incumbent_changed": false
+        }
+      ],
+      "elite_size": 7,
+      "tabu_size": 25,
+      "has_incumbent": true,
+      "best_source": "local_refine",
+      "iterative": true
+    },
+    "config_file": "D:\\codes\\Python\\CIC\\config\\local\\local_max_iter_20.json",
+    "config_name": "local_max_iter_20.json",
+    "config_snapshot": {
+      "mode": "iterative_hybrid",
+      "iterative_config": {
+        "max_rounds": 4,
+        "no_improve_patience": 2,
+        "use_classical_warm_start": false,
+        "classical_num_starts": 5,
+        "classical_local_iter": 20,
+        "classical_seed": 42,
+        "candidate_config": {
+          "top_k": 8,
+          "min_hamming_distance": 2,
+          "prefer_higher_probability": true,
+          "min_far_hamming_distance": 3,
+          "min_far_candidates": 2,
+          "tabu_hamming_threshold": 1,
+          "objective_bonus": 0.05,
+          "far_bonus": 0.02
+        },
+        "bias_update_config": {
+          "reward_step": 0.1,
+          "penalty_step": 0.2,
+          "pair_penalty_step": 0.15,
+          "elite_reward_step": 0.05,
+          "feasible_bad_ratio": 0.98,
+          "max_abs_linear_bias": 8.0,
+          "max_abs_pair_bias": 8.0,
+          "infeasible_penalty_growth": 1.1,
+          "no_improve_regularization_decay": 0.9,
+          "no_improve_feasibility_growth": 1.05,
+          "max_tabu_size": 50,
+          "elite_max_size": 10
+        },
+        "local_refine_config": {
+          "max_iter": 20,
+          "enable_swap": true,
+          "max_start_points": 3,
+          "use_guided_order": true
+        }
+      },
+      "quantum_config": {
+        "round_digits": 6,
+        "candidate_top_k": 5,
+        "include_solver_best": true,
+        "deduplicate_candidates": true,
+        "add_mutations_from_best": true,
+        "add_mutations_from_incumbent": true,
+        "max_best_mutations": 3,
+        "max_incumbent_mutations": 3,
+        "qubo_config": {
+          "objective_scale": 1.0,
+          "resource_penalty": 10.0,
+          "hamming_penalty": 1.5,
+          "demand_weight": 1.0,
+          "conflict_weight": 1.0,
+          "tabu_penalty": 5.0,
+          "elite_weight": 0.5,
+          "exploration_boost": 0.5,
+          "exploration_seed": 42
+        },
+        "qaoa_config": {
+          "p": 1,
+          "shots": 128,
+          "gamma_values": [
+            0.2,
+            0.5
+          ],
+          "beta_values": [
+            0.2,
+            0.5
+          ],
+          "seed": 42,
+          "per_run_top_k": 5,
+          "final_top_k": 10
+        }
+      }
+    },
+    "total_runtime": 439.210401058197
+  }
+}
